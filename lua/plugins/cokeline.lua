@@ -11,6 +11,28 @@ return {
         coke.setup({
             show_if_buffers_are_at_least = 2,
 
+            tabs = {
+                placement = "right",
+                components = {
+                    {
+                        text = " ",
+                    },
+                    {
+                        text = function(tabpage)
+                            return tabpage.is_active and "TAB " or "tab "
+                        end,
+                    },
+                    {
+                        text = function(tabpage)
+                            return tabpage.number .. " "
+                        end,
+                        bold = function(tabpage)
+                            return tabpage.is_active
+                        end,
+                    },
+                },
+            },
+
             default_hl = {
                 fg = function(buffer)
                     return buffer.is_focused and hlgroups.get_hl_attr("TabLineSel", "fg")

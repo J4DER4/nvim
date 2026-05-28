@@ -5,6 +5,7 @@ vim.opt.syntax = "on"
 vim.opt.showmode = false
 vim.o.termguicolors = true
 vim.o.completeopt = "menu,noselect"
+vim.opt.hidden = true
 
 --swapfiles
 vim.opt.swapfile = false
@@ -13,7 +14,11 @@ vim.opt.writebackup = false
 
 --save undo history
 vim.o.undofile = true
-vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir"
+local undo_dir = vim.fn.stdpath("state") .. "/undo"
+if vim.fn.isdirectory(undo_dir) == 0 then
+	vim.fn.mkdir(undo_dir, "p")
+end
+vim.opt.undodir = undo_dir
 
 --search
 vim.o.hlsearch = true
@@ -52,4 +57,11 @@ vim.opt.sidescroll = 5
 -- lazy redraw stuff
 vim.opt.lazyredraw = false
 
-vim.lsp.set_log_level("warn")
+if vim.fn.has("win32") == 1 and vim.fn.executable("pwsh") == 1 then
+	vim.opt.shell = "pwsh"
+	vim.opt.shellcmdflag = "-NoLogo -Command"
+	vim.opt.shellquote = ""
+	vim.opt.shellxquote = ""
+end
+
+vim.lsp.log.set_level("warn")

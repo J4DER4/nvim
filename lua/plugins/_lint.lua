@@ -11,13 +11,12 @@ return {
     },
     config = function()
         require("clang-tidy")
-        vim.env.ESLINT_D_PPID = vim.fn.getpid() -- for eslint_d
         local lint = require("lint")
         lint.linters_by_ft = {
+            c = { "clangtidy" },
             cpp = { "clangtidy" },
-            javascript = { "eslint_d" },
-            typescript = { "eslint_d" },
-            sh = { "shellcheck" },
+            lua = { "luacheck" },
+            python = { "ruff" },
         }
         -- lint.linters.clangtidy = {
         -- 	cmd = "clang-tidy",
