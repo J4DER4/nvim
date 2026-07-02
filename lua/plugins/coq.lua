@@ -5,6 +5,7 @@ return {
     branch = "coq",
     build = ":COQdeps",
     lazy = false,
+    -- lazy = false,
 
     dependencies = {
         { "ms-jpq/coq.artifacts", branch = "artifacts" },
@@ -16,7 +17,7 @@ return {
         })
         vim.g.coq_settings = {
 
-            auto_start = "shut-up",
+            auto_start = "shut-up", --test 
             keymap = {
                 recommended = true,
                 jump_to_mark = "<S-Tab>",

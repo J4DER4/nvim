@@ -1,5 +1,5 @@
 return {
-    enabled = true,
+    enabled = false,
 	"mikavilpas/yazi.nvim",
 	dependencies = { "noib3/nvim-cokeline" },
 	config = function()

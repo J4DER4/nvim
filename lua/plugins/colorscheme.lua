@@ -7,6 +7,7 @@ return {
 		require("cyberdream").setup({
 			transparent = true,
 			hide_fillchars = false,
+            variant = "dark"
 		})
 		vim.cmd([[colorscheme cyberdream]])
 	end,
