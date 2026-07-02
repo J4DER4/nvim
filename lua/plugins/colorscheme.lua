@@ -1,7 +1,7 @@
 return {
 	"scottmckendry/cyberdream.nvim",
 	priority = 1000,
-    branch = main,
+    branch = "main",
 	lazy = false,
 	config = function()
 		require("cyberdream").setup({

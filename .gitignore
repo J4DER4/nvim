@@ -1,0 +1,2 @@
+# Machine-local overrides — copy local.lua.example to local.lua and edit
+lua/core/local.lua

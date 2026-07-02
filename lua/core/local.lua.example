@@ -1,0 +1,42 @@
+-- Machine-local overrides  — copy this file to lua/core/local.lua (gitignored)
+-- and uncomment/edit the settings relevant for this machine.
+-- This file is loaded by core/init.lua via pcall so it's always optional.
+
+-- ============================================================
+-- clangd / C-C++ LSP
+-- ============================================================
+
+-- Pin clangd to a specific project root (enables project-root detection
+-- and the --compile-commands-dir flag when clangd_target is also set).
+-- vim.g.clangd_repo_root = "/home/user/myproject"
+-- vim.g.clangd_repo_root = "C:/fi-git/UNICOS_Industrial_ACS880INU"
+
+-- Default compile_commands target under <repo_root>/build/<target>/
+-- Switch at runtime with :ClangdTarget <TARGET>
+-- vim.g.clangd_target = "YINFC"
+
+-- Windows ACS880 toolchain base — enables ACS880-vN auto-detection and
+-- sets --query-driver for the cross compiler.
+-- vim.g.clangd_toolchain_base = "C:/Build"
+
+-- ============================================================
+-- OmniSharp (C#)
+-- ============================================================
+-- Opt-in; OmniSharp must be installed via Mason or PATH.
+-- vim.g.omnisharp_enabled = true
+
+-- ============================================================
+-- DAP / debugger
+-- ============================================================
+
+-- Override GDB binary path (also honoured by $GDB env var)
+-- vim.g.gdb_executable = "arm-none-eabi-gdb"
+-- vim.g.gdb_executable = "C:/mingw64/bin/gdb.exe"
+
+-- Override cppdbg adapter (ms-vscode.cpptools)
+-- vim.g.cppdbg_adapter = "C:/path/to/OpenDebugAD7.exe"
+
+-- ============================================================
+-- Notes
+-- ============================================================
+-- vim.env.NOTES = vim.fn.expand("~/notes/index.md")

@@ -1,9 +1,14 @@
+-- LSP configuration
+-- Machine-specific overrides via lua/core/local.lua:
+--   vim.g.clangd_repo_root     = "/path/to/project"   (enables project pinning + --compile-commands-dir)
+--   vim.g.clangd_target        = "MYTARGET"            (build/<target>/compile_commands.json)
+--   vim.g.clangd_toolchain_base = "C:/Build"           (Windows: scan for ACS880-vN toolchain)
+--   vim.g.omnisharp_enabled    = true                  (opt-in OmniSharp for C#)
 return {
     "neovim/nvim-lspconfig",
     dependencies = {
         "williamboman/mason.nvim",
         "williamboman/mason-lspconfig.nvim",
-        "ms-jpq/coq_nvim",
     },
     config = function()
         require("mason").setup()
@@ -13,49 +18,44 @@ return {
         })
 
         local uv = vim.uv or vim.loop
-
-        local repo_root      = "C:/fi-git/UNICOS_Industrial_ACS880INU"
-        local current_target = "YINFC"  -- changed by :ClangdTarget
+        local is_win = vim.fn.has("win32") == 1
 
         -- ----------------------------------------------------------------
-        -- helpers
+        -- Helpers
         -- ----------------------------------------------------------------
         local function file_exists(path)
-            local stat = uv.fs_stat(path)
-            return stat and stat.type == "file"
+            local s = uv.fs_stat(path)
+            return s and s.type == "file"
         end
 
         local function dir_exists(path)
-            local stat = uv.fs_stat(path)
-            return stat and stat.type == "directory"
+            local s = uv.fs_stat(path)
+            return s and s.type == "directory"
         end
 
-        local function normalize_path(path)
+        local function normalize(path)
             return path:gsub("\\", "/")
         end
 
         local function is_inside(path, parent)
-            path   = normalize_path(path):lower()
-            parent = normalize_path(parent):lower()
+            path   = normalize(path):lower()
+            parent = normalize(parent):lower()
             return path == parent or path:sub(1, #parent + 1) == parent .. "/"
         end
 
         -- ----------------------------------------------------------------
-        -- Auto-detect highest ACS880-vN build folder under C:/Build/
-        -- Returns the folder path, e.g. "C:/Build/ACS880-v15"
+        -- Auto-detect highest ACS880-vN folder under a base directory
+        -- (Windows toolchain convention; skipped unless clangd_toolchain_base set)
         -- ----------------------------------------------------------------
-        local function detect_acs880_root()
-            local base = "C:/Build"
+        local function detect_acs880_root(base)
+            if not base then return nil end
             local handle = uv.fs_scandir(base)
             if not handle then return nil end
-
-            local best_ver = -1
-            local best_path = nil
-
+            local best_ver, best_path = -1, nil
             while true do
                 local name, typ = uv.fs_scandir_next(handle)
                 if not name then break end
-                if (typ == "directory" or typ == "link") then
+                if typ == "directory" or typ == "link" then
                     local ver = name:match("^[Aa][Cc][Ss]880%-v(%d+)$")
                     if ver then
                         ver = tonumber(ver)
@@ -66,116 +66,100 @@ return {
                     end
                 end
             end
-
-            return best_path  -- nil if nothing found
+            return best_path
         end
 
         -- ----------------------------------------------------------------
         -- Resolve clangd binary:
-        --   1. ACS880-vN/LLVM/bin/clangd.exe  (preferred – matches toolchain)
-        --   2. WinGet install
-        --   3. Mason fallback
-        --   4. PATH
+        --   1. ACS880 toolchain  (Windows + clangd_toolchain_base)
+        --   2. Mason wrapper     (cross-platform, version-agnostic)
+        --   3. PATH fallback
+        -- Returns: binary path, acs880_root (or nil)
         -- ----------------------------------------------------------------
-        local function resolve_clangd_binary(acs880_root)
-            local candidates = {}
-
-            if acs880_root then
-                table.insert(candidates, acs880_root .. "/LLVM/bin/clangd.exe")
-            end
-
-            table.insert(candidates,
-                "C:/Users/FIJOMAA/AppData/Local/Microsoft/WinGet/Packages/"
-                .. "LLVM.clangd_Microsoft.Winget.Source_8wekyb3d8bbwe/"
-                .. "clangd_22.1.0/bin/clangd.exe")
-
-            table.insert(candidates,
-                vim.fn.stdpath("data") .. "/mason/packages/clangd/clangd_22.1.0/bin/clangd.exe")
-
-            for _, c in ipairs(candidates) do
-                if file_exists(c) then
-                    return c
+        local function resolve_clangd_binary()
+            if is_win and vim.g.clangd_toolchain_base then
+                local acs880 = detect_acs880_root(vim.g.clangd_toolchain_base)
+                if acs880 then
+                    local bin = acs880 .. "/LLVM/bin/clangd.exe"
+                    if file_exists(bin) then return bin, acs880 end
                 end
             end
-
-            return "clangd"  -- last resort: PATH
+            local ext = is_win and ".cmd" or ""
+            local mason_bin = vim.fn.stdpath("data") .. "/mason/bin/clangd" .. ext
+            if file_exists(mason_bin) then return mason_bin, nil end
+            return "clangd", nil  -- PATH
         end
 
         -- ----------------------------------------------------------------
-        -- Capabilities (coq or plain)
+        -- Root dir: pin to project root when inside it, else standard markers
         -- ----------------------------------------------------------------
-        local function make_capabilities()
-            local caps = vim.lsp.protocol.make_client_capabilities()
-            local ok, coq = pcall(require, "coq")
-            -- if ok then caps = coq.lsp_ensure_capabilities(caps) end
-            return caps
-        end
+        local root_markers = {
+            "compile_commands.json", "compile_flags.txt",
+            ".clangd", ".clang-tidy", ".clang-format",
+            "SConstruct", ".git",
+        }
 
-        -- ----------------------------------------------------------------
-        -- Root dir: pin to monorepo root when inside it
-        -- ----------------------------------------------------------------
         local function clangd_root_dir(bufnr, on_dir)
-            local fname = vim.api.nvim_buf_get_name(bufnr)
-            if is_inside(fname, repo_root) then
-                on_dir(repo_root)
-                return
+            local repo_root = vim.g.clangd_repo_root
+            if repo_root then
+                local fname = vim.api.nvim_buf_get_name(bufnr)
+                if is_inside(fname, repo_root) then
+                    on_dir(repo_root)
+                    return
+                end
             end
-            local markers = {
-                "compile_commands.json", "compile_flags.txt",
-                ".clangd", ".clang-tidy", ".clang-format",
-                "SConstruct", ".git",
-            }
-            local found = vim.fs.root(bufnr, markers)
+            local found = vim.fs.root(bufnr, root_markers)
             if found then on_dir(found) end
         end
 
         -- ----------------------------------------------------------------
-        -- Build the command for a given target
+        -- Build clangd command — closes over clangd_bin/acs880_root so
+        -- :ClangdToolchain can update upvalues and restart picks them up
         -- ----------------------------------------------------------------
-        local toolchain_base = "C:/Build"
-        local acs880_root    = detect_acs880_root()
+        local clangd_bin, acs880_root = resolve_clangd_binary()
+        local current_target = vim.g.clangd_target or nil
 
-        if not acs880_root then
-            vim.notify("[clangd] WARNING: No ACS880-vN folder found under " .. toolchain_base, vim.log.levels.WARN)
-        end
-
-        local clangd_bin   = resolve_clangd_binary(acs880_root)
-        local query_driver = acs880_root and (acs880_root .. "/**/*") or (toolchain_base .. "/**/*")
-
-        -- make_clangd_cmd closes over clangd_bin / query_driver so :ClangdToolchain
-        -- can reassign those upvalues and the new cmd picks them up automatically.
         local function make_clangd_cmd(target)
-            return {
+            local cmd = {
                 clangd_bin,
                 "--background-index",
                 "--all-scopes-completion",
                 "--cross-file-rename",
                 "--completion-style=detailed",
                 "--pch-storage=memory",
-                "--compile-commands-dir=" .. repo_root .. "/build/" .. target .. "/",
-                "--query-driver=" .. query_driver,
                 "--header-insertion=never",
                 "--log=error",
             }
-        end
 
-        if not dir_exists(repo_root .. "/build/" .. current_target) then
-            vim.notify(
-                "[clangd] build/" .. current_target .. " missing — run build first",
-                vim.log.levels.ERROR)
+            -- compile_commands only when project root + target are configured
+            local repo_root = vim.g.clangd_repo_root
+            if repo_root and target then
+                local cdb_dir = repo_root .. "/build/" .. target .. "/"
+                if dir_exists(cdb_dir) then
+                    table.insert(cmd, "--compile-commands-dir=" .. cdb_dir)
+                else
+                    vim.notify(
+                        "[clangd] build/" .. target .. " missing — run build first",
+                        vim.log.levels.WARN)
+                end
+            end
+
+            -- query-driver only when a toolchain root is known
+            if acs880_root then
+                table.insert(cmd, "--query-driver=" .. acs880_root .. "/**/*")
+            end
+
+            return cmd
         end
 
         -- ----------------------------------------------------------------
-        -- Register with nvim-lsp
+        -- Register clangd with nvim-lsp
         -- ----------------------------------------------------------------
         vim.lsp.config("clangd", {
             cmd          = make_clangd_cmd(current_target),
-            capabilities = make_capabilities(),
+            capabilities = vim.lsp.protocol.make_client_capabilities(),
             root_dir     = clangd_root_dir,
-            root_markers = {
-                "SConstruct", ".clangd", "compile_commands.json",
-                "compile_flags.txt", ".clang-tidy", ".clang-format", ".git",
-            },
+            root_markers = root_markers,
             init_options = {
                 clangdFileStatus = true,
                 hints = {
@@ -188,27 +172,34 @@ return {
         vim.lsp.enable("clangd")
 
         -- ================================================================
-        -- OmniSharp for C#
+        -- OmniSharp for C# — opt-in via vim.g.omnisharp_enabled = true
         -- ================================================================
-        vim.lsp.config("omnisharp", {
-          cmd = { "OmniSharp", "-z", "--hostPID", vim.fn.getpid(), "--encoding", "utf-8", "--languageserver" },
-          capabilities = make_capabilities(),
-          root_markers = { ".sln", ".csproj" },
-        })
-
-        vim.lsp.enable("omnisharp")
+        if vim.g.omnisharp_enabled then
+            vim.lsp.config("omnisharp", {
+                cmd = {
+                    "OmniSharp", "-z",
+                    "--hostPID", tostring(vim.fn.getpid()),
+                    "--encoding", "utf-8",
+                    "--languageserver",
+                },
+                capabilities = vim.lsp.protocol.make_client_capabilities(),
+                root_markers  = { ".sln", ".csproj" },
+            })
+            vim.lsp.enable("omnisharp")
+        end
 
         -- ----------------------------------------------------------------
-        -- :ClangdTarget [TARGET]  — switch CDB target and restart
-        --   no arg: prints current target
+        -- :ClangdTarget [TARGET]  — switch compile_commands target and restart
+        --   no arg: print current target
         -- ----------------------------------------------------------------
         vim.api.nvim_create_user_command("ClangdTarget", function(opts)
             local target = opts.args ~= "" and opts.args or nil
             if not target then
-                vim.notify("[clangd] Current target: " .. current_target, vim.log.levels.INFO)
+                vim.notify("[clangd] Current target: " .. (current_target or "(none)"), vim.log.levels.INFO)
                 return
             end
-            if not dir_exists(repo_root .. "/build/" .. target) then
+            local repo_root = vim.g.clangd_repo_root
+            if repo_root and not dir_exists(repo_root .. "/build/" .. target) then
                 vim.notify("[clangd] build/" .. target .. " not found — run build first", vim.log.levels.WARN)
                 return
             end
@@ -220,25 +211,30 @@ return {
 
         -- ----------------------------------------------------------------
         -- :ClangdToolchain [ACS880-vN]  — switch toolchain version and restart
-        --   no arg: prints current toolchain root
+        --   no arg: print current toolchain
         -- ----------------------------------------------------------------
         vim.api.nvim_create_user_command("ClangdToolchain", function(opts)
             local arg = opts.args ~= "" and opts.args or nil
             if not arg then
-                vim.notify("[clangd] Current toolchain: " .. (acs880_root or "(none)"), vim.log.levels.INFO)
+                vim.notify("[clangd] Toolchain: " .. (acs880_root or "(none)") .. "  binary: " .. clangd_bin, vim.log.levels.INFO)
                 return
             end
-            local new_root = toolchain_base .. "/" .. arg
+            local base = vim.g.clangd_toolchain_base
+            if not base then
+                vim.notify("[clangd] vim.g.clangd_toolchain_base not set", vim.log.levels.WARN)
+                return
+            end
+            local new_root = base .. "/" .. arg
             if not dir_exists(new_root) then
                 vim.notify("[clangd] " .. new_root .. " not found", vim.log.levels.WARN)
                 return
             end
-            acs880_root  = new_root
-            clangd_bin   = resolve_clangd_binary(acs880_root)
-            query_driver = acs880_root .. "/**/*"
+            acs880_root = new_root
+            local new_bin = new_root .. "/LLVM/bin/clangd.exe"
+            clangd_bin  = file_exists(new_bin) and new_bin or "clangd"
             vim.lsp.config("clangd", { cmd = make_clangd_cmd(current_target) })
             vim.cmd("LspRestart clangd")
-            vim.notify("[clangd] Toolchain → " .. arg .. ", binary: " .. clangd_bin .. " (restarting)", vim.log.levels.INFO)
+            vim.notify("[clangd] Toolchain → " .. arg .. "  binary: " .. clangd_bin .. " (restarting)", vim.log.levels.INFO)
         end, { nargs = "?", desc = "Switch clangd toolchain (ACS880-vN)" })
 
         -- ----------------------------------------------------------------
@@ -247,7 +243,7 @@ return {
         vim.keymap.set("n", "<leader>i", function()
             local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = 0 })
             vim.lsp.inlay_hint.enable(not enabled, { bufnr = 0 })
-            vim.notify("[clangd] Inlay hints " .. (not enabled and "ON" or "OFF"), vim.log.levels.INFO)
+            vim.notify("[lsp] Inlay hints " .. (not enabled and "ON" or "OFF"), vim.log.levels.INFO)
         end, { desc = "Toggle inlay hints" })
     end,
 }

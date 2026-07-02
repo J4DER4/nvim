@@ -1,3 +1,7 @@
+-- DAP configuration
+-- Machine-specific overrides via lua/core/local.lua:
+--   vim.g.gdb_executable  = "/path/to/gdb"            (override gdb binary)
+--   vim.g.cppdbg_adapter   = "/path/to/OpenDebugAD7"  (override cppdbg adapter path)
 return {
     "mfussenegger/nvim-dap",
     dependencies = {
@@ -10,13 +14,9 @@ return {
         local dap = require("dap")
         local dapui = require("dapui")
         local uv = vim.uv or vim.loop
-        local root_markers = {
-            ".git",
-            "compile_commands.json",
-            "compile_flags.txt",
-            "SConstruct",
-            "Makefile",
-        }
+        local is_win = vim.fn.has("win32") == 1
+
+        local root_markers = { ".git", "compile_commands.json", "compile_flags.txt", "SConstruct", "Makefile" }
 
         local function project_root()
             return vim.fs.root(0, root_markers) or vim.uv.cwd()
@@ -26,107 +26,51 @@ return {
             return path and uv.fs_stat(vim.fn.expand(path)) ~= nil
         end
 
-        local function add_unique(list, value)
-            if not value or value == "" then
-                return
-            end
-
-            for _, existing in ipairs(list) do
-                if existing == value then
-                    return
-                end
-            end
-
-            table.insert(list, value)
-        end
-
-        local function candidate_gdb_paths(root_dir)
-            local candidates = {}
-            local root_candidates = {}
-            local current_file = vim.api.nvim_buf_get_name(0)
-
-            add_unique(root_candidates, root_dir)
-            add_unique(root_candidates, project_root())
-            add_unique(root_candidates, vim.fn.getcwd())
-
-            if current_file ~= "" then
-                add_unique(root_candidates, vim.fs.root(current_file, root_markers))
-                add_unique(root_candidates, vim.fs.dirname(current_file))
-            end
-
-            for _, root in ipairs(root_candidates) do
-                add_unique(candidates, root .. "/sdk/compilers/mingw-x86_64-12.2.0/bin/gdb.exe")
-                for _, match in ipairs(vim.fn.glob(root .. "/sdk/compilers/**/bin/gdb.exe", false, true)) do
-                    add_unique(candidates, match)
-                end
-            end
-
-            for _, match in ipairs(vim.fn.glob("C:/fi-git/**/sdk/compilers/mingw-x86_64-12.2.0/bin/gdb.exe", false, true)) do
-                add_unique(candidates, match)
-            end
-
-            for _, match in ipairs(vim.fn.glob("C:/fi-git/**/sdk/compilers/**/bin/gdb.exe", false, true)) do
-                add_unique(candidates, match)
-            end
-
-            return candidates
-        end
-
-        local function resolve_gdb_command(root_dir)
-            local candidates = {}
-
-            for _, candidate in ipairs(candidate_gdb_paths(root_dir)) do
-                add_unique(candidates, candidate)
-            end
-
-            add_unique(candidates, vim.g.gdb_executable)
-            add_unique(candidates, vim.env.GDB)
-            add_unique(candidates, "arm-none-eabi-gdb")
-            add_unique(candidates, "gdb")
-
-            for _, candidate in ipairs(candidates) do
-                if candidate and candidate ~= "" then
-                    if candidate:match("[/\\]") then
-                        if path_exists(candidate) then
-                            return vim.fn.expand(candidate)
-                        end
-                    elseif vim.fn.executable(candidate) == 1 then
-                        return candidate
+        -- ----------------------------------------------------------------
+        -- Resolve GDB binary
+        --   1. vim.g.gdb_executable or $GDB env override
+        --   2. Glob for gdb inside project sdk/compilers tree
+        --   3. arm-none-eabi-gdb / gdb from PATH
+        -- ----------------------------------------------------------------
+        local function resolve_gdb_command()
+            for _, cand in ipairs({ vim.g.gdb_executable, vim.env.GDB }) do
+                if cand and cand ~= "" then
+                    if cand:match("[/\\]") then
+                        if path_exists(cand) then return vim.fn.expand(cand) end
+                    elseif vim.fn.executable(cand) == 1 then
+                        return cand
                     end
                 end
             end
-
+            local root = project_root()
+            local pattern = root .. "/sdk/compilers/**/bin/gdb" .. (is_win and ".exe" or "")
+            for _, match in ipairs(vim.fn.glob(pattern, false, true)) do
+                if path_exists(match) then return match end
+            end
+            for _, cand in ipairs({ "arm-none-eabi-gdb", "gdb" }) do
+                if vim.fn.executable(cand) == 1 then return cand end
+            end
             return "gdb"
         end
 
+        -- ----------------------------------------------------------------
+        -- Resolve cppdbg adapter (Windows only)
+        --   1. vim.g.cppdbg_adapter override
+        --   2. Glob for any installed ms-vscode.cpptools extension
+        -- ----------------------------------------------------------------
         local function resolve_cppdbg_adapter()
-            local candidates = {
-                vim.g.cppdbg_adapter,
-                "C:/Users/FIJOMAA/.vscode/extensions/ms-vscode.cpptools-1.32.2-win32-x64/debugAdapters/bin/OpenDebugAD7.exe",
-            }
-
-            for _, candidate in ipairs(candidates) do
-                if candidate and candidate ~= "" and path_exists(candidate) then
-                    return vim.fn.expand(candidate)
+            if vim.g.cppdbg_adapter and vim.g.cppdbg_adapter ~= "" then
+                if path_exists(vim.g.cppdbg_adapter) then
+                    return vim.fn.expand(vim.g.cppdbg_adapter)
                 end
             end
-
-            for _, match in ipairs(vim.fn.glob("C:/Users/FIJOMAA/.vscode/extensions/ms-vscode.cpptools-*/debugAdapters/bin/OpenDebugAD7.exe", false, true)) do
-                if path_exists(match) then
-                    return match
-                end
+            if not is_win then return nil end
+            local home = vim.fn.expand("~")
+            local pattern = home .. "/.vscode/extensions/ms-vscode.cpptools-*/debugAdapters/bin/OpenDebugAD7.exe"
+            for _, match in ipairs(vim.fn.glob(pattern, false, true)) do
+                if path_exists(match) then return match end
             end
-
             return nil
-        end
-
-        local function default_path_or_prompt(prompt, default_path)
-            if path_exists(default_path) then
-                return default_path
-            end
-
-            vim.notify(prompt .. " not found at " .. default_path .. ". Pick it manually.", vim.log.levels.WARN)
-            return vim.fn.input(prompt .. ": ", default_path, "file")
         end
 
         local function pick_program()
@@ -135,141 +79,77 @@ return {
 
         local function pick_args()
             local raw = vim.fn.input("Program arguments: ")
-            if raw == "" then
-                return {}
-            end
-
+            if raw == "" then return {} end
             return vim.split(raw, "%s+", { trimempty = true })
         end
 
+        -- ----------------------------------------------------------------
+        -- Setup UI and virtual text
+        -- ----------------------------------------------------------------
         dapui.setup()
         require("nvim-dap-virtual-text").setup()
 
         for name, sign in pairs({
-            DapBreakpoint = "●",
-            DapBreakpointCondition = "◆",
-            DapBreakpointRejected = "",
-            DapLogPoint = "󰰍",
-            DapStopped = "▶",
+            DapBreakpoint          = "bullet",
+            DapBreakpointCondition = "diamond",
+            DapBreakpointRejected  = "x",
+            DapLogPoint            = "log",
+            DapStopped             = "arrow",
         }) do
             vim.fn.sign_define(name, { text = sign, texthl = name, linehl = "", numhl = "" })
         end
 
-        dap.adapters.cppdbg = {
-            id = "cppdbg",
-            type = "executable",
-            command = assert(resolve_cppdbg_adapter(), "OpenDebugAD7.exe not found. Install ms-vscode.cpptools."),
-            options = {
-                detached = false,
-            },
+        -- ----------------------------------------------------------------
+        -- cppdbg adapter - optional, warn when not found
+        -- ----------------------------------------------------------------
+        local cppdbg_path = resolve_cppdbg_adapter()
+        if cppdbg_path then
+            dap.adapters.cppdbg = {
+                id      = "cppdbg",
+                type    = "executable",
+                command = cppdbg_path,
+                options = { detached = false },
+            }
+        else
+            dap.adapters.cppdbg = {
+                type = "executable",
+                command = "false",
+                enrich_config = function(_, on_config)
+                    vim.notify(
+                        "[dap] cppdbg adapter not found.\nInstall ms-vscode.cpptools or set vim.g.cppdbg_adapter.",
+                        vim.log.levels.WARN)
+                    on_config({})
+                end,
+            }
+        end
+
+        -- ----------------------------------------------------------------
+        -- Common GDB setup commands
+        -- ----------------------------------------------------------------
+        local gdb_setup = {
+            { description = "Enable pretty-printing", text = "-enable-pretty-printing",           ignoreFailures = true },
+            { description = "Intel disassembly",      text = "-gdb-set disassembly-flavor intel", ignoreFailures = true },
         }
 
         local launch_config = {
-            name = "Launch with GDB",
-            type = "cppdbg",
-            request = "launch",
-            cwd = project_root,
-            program = pick_program,
-            args = pick_args,
-            stopAtEntry = false,
+            name            = "Launch with GDB",
+            type            = "cppdbg",
+            request         = "launch",
+            cwd             = project_root,
+            program         = pick_program,
+            args            = pick_args,
+            stopAtEntry     = false,
             externalConsole = false,
-            MIMode = "gdb",
-            miDebuggerPath = function()
-                return resolve_gdb_command(project_root())
-            end,
-            setupCommands = {
-                {
-                    description = "Enable pretty-printing for gdb",
-                    text = "-enable-pretty-printing",
-                    ignoreFailures = true,
-                },
-                {
-                    description = "Set disassembly flavor to Intel",
-                    text = "-gdb-set disassembly-flavor intel",
-                    ignoreFailures = true,
-                },
-            },
+            MIMode          = "gdb",
+            miDebuggerPath  = resolve_gdb_command,
+            setupCommands   = gdb_setup,
         }
 
-        local unit_test_config = {
-            name = "Unit test gdb launch",
-            type = "cppdbg",
-            request = "launch",
-            cwd = project_root,
-            program = function()
-                local root_dir = project_root()
-                return default_path_or_prompt("Unit test executable", root_dir .. "/build/unittests/motion_unit_tests.exe")
-            end,
-            args = {},
-            stopAtEntry = false,
-            externalConsole = false,
-            MIMode = "gdb",
-            miDebuggerPath = function()
-                return resolve_gdb_command(project_root())
-            end,
-            setupCommands = {
-                {
-                    description = "Enable pretty-printing for gdb",
-                    text = "-enable-pretty-printing",
-                    ignoreFailures = true,
-                },
-                {
-                    description = "Set disassembly flavor to Intel",
-                    text = "-gdb-set disassembly-flavor intel",
-                    ignoreFailures = true,
-                },
-            },
-        }
+        dap.configurations.c   = { launch_config }
+        dap.configurations.cpp = { vim.deepcopy(launch_config) }
 
-        local virtual_drive_config = {
-            name = "YINVC motion gdb launch",
-            type = "cppdbg",
-            request = "launch",
-            cwd = function()
-                return project_root() .. "/virtual_drive"
-            end,
-            program = function()
-                local root_dir = project_root()
-                return default_path_or_prompt("Virtual drive executable", root_dir .. "/virtual_drive/YINVC.exe")
-            end,
-            args = { "/debug", "/wcf", "/nodeid", "1", "/flash", "YINVC_312.vd" },
-            stopAtEntry = false,
-            externalConsole = false,
-            MIMode = "gdb",
-            miDebuggerPath = function()
-                return resolve_gdb_command(project_root())
-            end,
-            setupCommands = {
-                {
-                    description = "Enable pretty-printing for gdb",
-                    text = "-enable-pretty-printing",
-                    ignoreFailures = true,
-                },
-                {
-                    description = "Set disassembly flavor to Intel",
-                    text = "-gdb-set disassembly-flavor intel",
-                    ignoreFailures = true,
-                },
-            },
-        }
-
-        dap.configurations.c = { launch_config, unit_test_config, virtual_drive_config }
-        dap.configurations.cpp = {
-            vim.deepcopy(launch_config),
-            vim.deepcopy(unit_test_config),
-            vim.deepcopy(virtual_drive_config),
-        }
-
-        dap.listeners.after.event_initialized["dapui_config"] = function()
-            dapui.open()
-        end
-
-        dap.listeners.before.event_terminated["dapui_config"] = function()
-            dapui.close()
-        end
-
-        dap.listeners.before.event_exited["dapui_config"] = function()
-            dapui.close()
-        end
+        dap.listeners.after.event_initialized["dapui_config"]  = function() dapui.open() end
+        dap.listeners.before.event_terminated["dapui_config"]  = function() dapui.close() end
+        dap.listeners.before.event_exited["dapui_config"]      = function() dapui.close() end
     end,
 }

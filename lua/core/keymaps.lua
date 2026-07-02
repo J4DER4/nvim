@@ -369,20 +369,5 @@ end, {
     desc = "Copy current buffer path to clipboard",
 })
 
--- Jump forward in snippet
-vim.keymap.set("i", "<Tab>", function()
-    if vim.snippet.active({ direction = 1 }) then
-        vim.snippet.jump(1)
-    else
-        vim.fn.feedkeys(vim.api.nvim_replace_termcodes("<Tab>", true, false, true), "n")
-    end
-end, { noremap = true, silent = true })
 
--- Jump backward in snippet
-vim.keymap.set("i", "<S-Tab>", function()
-    if vim.snippet.active({ direction = -1 }) then
-        vim.snippet.jump(-1)
-    else
-        vim.fn.feedkeys(vim.api.nvim_replace_termcodes("<S-Tab>", true, false, true), "n")
-    end
-end, { noremap = true, silent = true })
+
