@@ -173,6 +173,10 @@ return {
 
         -- ================================================================
         -- OmniSharp for C# — opt-in via vim.g.omnisharp_enabled = true
+        -- Explicitly disabled by default: lspconfig v3 registers all server
+        -- configs globally via vim.lsp.config(), so without an explicit
+        -- vim.lsp.disable() the server shows as "configured" even when we
+        -- never called vim.lsp.enable().
         -- ================================================================
         if vim.g.omnisharp_enabled then
             vim.lsp.config("omnisharp", {
@@ -186,6 +190,8 @@ return {
                 root_markers  = { ".sln", ".csproj" },
             })
             vim.lsp.enable("omnisharp")
+        else
+            pcall(vim.lsp.disable, "omnisharp")
         end
 
         -- ----------------------------------------------------------------

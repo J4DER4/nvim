@@ -40,3 +40,7 @@
 -- Notes
 -- ============================================================
 -- vim.env.NOTES = vim.fn.expand("~/notes/index.md")
+
+-- tmux truecolor (add to ~/.tmux.conf, replace XXX with $TERM value outside tmux):
+--   set-option -a terminal-features 'XXX:RGB'
+--   set-option -g focus-events on

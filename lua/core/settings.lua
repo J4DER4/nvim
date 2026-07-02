@@ -67,3 +67,11 @@ end
 vim.lsp.log.set_level("warn")
 
 vim.o.statusline = vim.o.statusline .. "%{getcwd()}"
+
+-- Ensure treesitter parser install dir is in runtimepath
+-- (nvim-treesitter installs to stdpath("data")/site which may not be in rtp on some distros)
+vim.opt.rtp:append(vim.fn.stdpath("data") .. "/site")
+
+-- Disable optional legacy providers we don't use (suppresses healthcheck noise)
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
