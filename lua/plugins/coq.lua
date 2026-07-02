@@ -2,7 +2,6 @@ return {
     enabled = true,
     "ms-jpq/coq_nvim",
     branch = "coq",
-    build = ":COQdeps",
     lazy = false,
     dependencies = {
         { "ms-jpq/coq.artifacts",  branch = "artifacts" },

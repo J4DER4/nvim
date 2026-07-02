@@ -64,7 +64,7 @@ if vim.fn.has("win32") == 1 and vim.fn.executable("pwsh") == 1 then
 	vim.opt.shellxquote = ""
 end
 
-vim.lsp.log.set_level("warn")
+vim.lsp.set_log_level("warn")
 
 vim.o.statusline = vim.o.statusline .. "%{getcwd()}"
 
