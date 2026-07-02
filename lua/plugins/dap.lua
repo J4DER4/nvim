@@ -90,11 +90,11 @@ return {
         require("nvim-dap-virtual-text").setup()
 
         for name, sign in pairs({
-            DapBreakpoint          = "bullet",
-            DapBreakpointCondition = "diamond",
-            DapBreakpointRejected  = "x",
-            DapLogPoint            = "log",
-            DapStopped             = "arrow",
+            DapBreakpoint          = "●",
+            DapBreakpointCondition = "◆",
+            DapBreakpointRejected  = "✗",
+            DapLogPoint            = "◎",
+            DapStopped             = "▶",
         }) do
             vim.fn.sign_define(name, { text = sign, texthl = name, linehl = "", numhl = "" })
         end
